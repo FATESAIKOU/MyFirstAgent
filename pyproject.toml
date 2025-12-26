@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "meal-agent"
+version = "0.1.0"
+description = "AI Agent for meal planning and weight management"
+authors = ["Developer"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+langgraph = "^0.2.45"
+langchain-ollama = "^0.2.0"
+langchain-core = "^0.3.21"
+pydantic = "^2.10.5"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
+black = "^25.12.0"
+ruff = "^0.14.10"
+ipython = "^9.8.0"
+

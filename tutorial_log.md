@@ -195,5 +195,186 @@ MyFirstAgent/
 
 ---
 
-## 步驟 4：展開功能列表與實現大綱（進行中）
+## 步驟 4：展開功能列表與實現大綱 ✅
 
+### Phase 1 實現步驟大綱
+
+| 步驟 | 步驟名 | 實施內容大綱 | 說明的技術 | 預期效果 | 新增・變更的檔案 |
+|------|--------|-------------|-----------|---------|-----------------|
+| **5** | 構建專案骨架 | Poetry 初始化、目錄結構、依賴安裝、Ollama 模型下載 | Poetry、專案結構設計 | 可執行 `poetry run python -c "import langgraph"` | `pyproject.toml`, `src/**/__init__.py` |
+| **6** | 最小 LLM 對話 | 單輪對話，無狀態，直接調用 Ollama | LangChain-Ollama 整合、Prompt 基礎 | CLI 輸入問題 → 得到回覆 | `src/main.py`, `src/config/settings.py` |
+| **7.1** | 引入 LangGraph State | 定義 AgentState、建立最簡單的單節點 Graph | LangGraph State、Graph 結構 | 同上，但用 Graph 架構 | `src/agent/state.py`, `src/agent/graph.py` |
+| **7.2** | 多輪對話記憶 | State 中加入 messages 歷史 | Checkpointer、對話記憶 | 能記住上一輪說的話 | `src/agent/graph.py` (修改) |
+| **7.3** | 第一個 Tool：營養計算 | 定義 Tool Schema、LLM 調用 Tool | Tool Calling、Function Schema | "雞胸肉 200g 多少熱量" → 自動計算 | `src/tools/nutrition.py`, `src/agent/graph.py` |
+| **7.4** | 用戶資料持久化 | JSON 讀寫 Tool、首次使用引導流程 | Tool 組合、條件分支 | 新用戶 → 引導輸入 → 存入 JSON | `src/tools/storage.py`, `data/user_profile.json` |
+| **7.5** | 食譜推薦功能 | 結合用戶資料 + 食材 → 推薦食譜 | Prompt Engineering、上下文注入 | "有雞肉和青菜" → 個人化食譜推薦 | `src/agent/prompts.py` |
+| **7.6** | 大餐日規劃 | 記錄預定大餐、調整推薦策略 | 多步推理、狀態更新 | "週六吃火鍋" → "週四五建議減少攝取..." | `src/tools/storage.py` (修改) |
+
+### 各步驟學習重點
+
+**步驟 5 - 構建專案骨架**
+- Poetry 專案管理
+- Python 套件結構設計
+- Ollama 模型下載與驗證
+
+**步驟 6 - 最小 LLM 對話**
+- ChatOllama 使用方式
+- 基本 Prompt 設計
+- 驗證 LLM 連接
+
+**步驟 7.1 - 引入 LangGraph State**
+- StateGraph 概念
+- Node（節點）與 Edge（邊）
+- Graph 編譯與執行
+
+**步驟 7.2 - 多輪對話記憶**
+- MemorySaver / Checkpointer
+- messages 歷史管理
+- thread_id 概念
+
+**步驟 7.3 - 第一個 Tool：營養計算**
+- @tool 裝飾器
+- bind_tools() 綁定工具
+- ToolNode 執行工具
+- 條件分支（should_continue）
+
+**步驟 7.4 - 用戶資料持久化**
+- 多 Tool 組合使用
+- 條件邏輯（新用戶 vs 舊用戶）
+- JSON 檔案操作
+
+**步驟 7.5 - 食譜推薦功能**
+- System Prompt 設計
+- 動態 Prompt 組裝
+- 上下文注入（用戶資料）
+
+**步驟 7.6 - 大餐日規劃**
+- 多步推理
+- 狀態連動更新
+- 時間相關邏輯
+
+---
+
+## 步驟 5：構建專案骨架 ✅
+
+### 執行記錄
+
+1. **Poetry 專案配置** - `pyproject.toml`
+   ```toml
+   [tool.poetry]
+   package-mode = false  # 不打包，純開發用
+   
+   [tool.poetry.dependencies]
+   python = "^3.12"
+   langgraph = "^0.2.45"
+   langchain-ollama = "^0.2.0"
+   langchain-core = "^0.3.21"
+   pydantic = "^2.10.5"
+   ```
+
+2. **目錄結構建立**
+   ```
+   MyFirstAgent/
+   ├── pyproject.toml
+   ├── poetry.lock
+   ├── README.md
+   ├── tutorial_log.md
+   ├── data/.gitkeep
+   ├── src/
+   │   ├── __init__.py
+   │   ├── main.py
+   │   ├── agent/__init__.py
+   │   ├── tools/__init__.py
+   │   └── config/__init__.py
+   └── tests/__init__.py
+   ```
+
+3. **依賴安裝** - `poetry install` ✅
+
+4. **Ollama 模型下載** - `ollama pull qwen3:8b` ✅
+   - 模型大小：5.2 GB
+   - 狀態：可用
+
+### 驗證結果
+
+```bash
+$ poetry run python -c "import langgraph; import langchain_ollama; print('✅')"
+✅ 依賴安裝成功！
+
+$ ollama list | grep qwen3
+qwen3:8b    500a1f067a9f    5.2 GB
+```
+
+### 學習重點
+
+1. **Poetry package-mode = false**：表示這是應用程式專案，不是要發佈的套件
+2. **專案結構設計**：
+   - `src/agent/` - Agent 核心邏輯（Graph、State）
+   - `src/tools/` - Agent 可調用的工具函數
+   - `src/config/` - 配置管理
+   - `data/` - 運行時資料存放
+
+---
+
+## 步驟 6：最小 LLM 對話 ✅
+
+### 執行記錄
+
+1. **建立配置檔** - `src/config/settings.py`
+   ```python
+   OLLAMA_BASE_URL = "http://localhost:11434"
+   OLLAMA_MODEL = "qwen3:8b"
+   ```
+
+2. **實現 CLI 對話** - `src/main.py`
+   - 使用 `ChatOllama` 連接本地 Ollama
+   - `SystemMessage` 定義 AI 角色（營養師助手）
+   - `HumanMessage` 傳遞用戶輸入
+   - `invoke()` 同步調用 LLM
+
+3. **qwen3 特性處理**
+   - qwen3 預設啟用 thinking mode，會輸出 `<think>` 標籤
+   - 加入 `/no_think` 指令關閉思考過程輸出
+   - 清理殘留的空標籤
+
+### 程式碼結構
+
+```python
+# 建立 LLM
+llm = ChatOllama(model="qwen3:8b", temperature=0.7)
+
+# 組裝訊息
+messages = [
+    SystemMessage(content="你是營養師助手..."),
+    HumanMessage(content=user_input),
+]
+
+# 調用 LLM
+response = llm.invoke(messages)
+```
+
+### 驗證結果
+
+```bash
+$ echo "100g雞胸肉有多少熱量" | poetry run python -m src.main
+助手: 100g雞胸肉約有165-200大卡的熱量
+```
+
+### 學習重點
+
+1. **ChatOllama** - LangChain 對 Ollama 的封裝
+2. **訊息類型**：
+   - `SystemMessage` - 系統提示，定義 AI 人設
+   - `HumanMessage` - 用戶輸入
+   - `AIMessage` - AI 回覆（invoke 返回）
+3. **invoke() vs stream()** - 同步 vs 串流輸出
+4. **temperature** - 控制回覆隨機性
+
+### 目前限制（下一步解決）
+
+- ❌ 無對話記憶（每次都是新對話）
+- ❌ 無 Graph 架構（難以擴展）
+
+---
+
+## 步驟 7.1：引入 LangGraph State（進行中）
