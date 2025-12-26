@@ -29,6 +29,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 
 from src.agent.state import AgentState
+from src.agent.prompts import NUTRITIONIST_SYSTEM_PROMPT
 from src.config.settings import OLLAMA_MODEL, OLLAMA_BASE_URL
 from src.tools.nutrition import nutrition_tools
 from src.tools.storage import storage_tools
@@ -37,26 +38,8 @@ from src.tools.storage import storage_tools
 all_tools = nutrition_tools + storage_tools
 
 
-# System Prompt - 定義 AI 角色
-SYSTEM_PROMPT = """你是一個專業的營養師助手，專門協助用戶規劃健康飲食和管理體重。
-
-你的職責：
-1. 第一次對話時，先使用 load_user_profile 檢查用戶資料
-2. 如果是新用戶，友善地引導他們設定：姓名、目標體重、當前體重
-3. 根據用戶資料和食材推薦個人化食譜
-4. 計算食物營養成分
-5. 記錄用戶的飲食
-6. 協助規劃大餐日
-
-可用工具：
-- load_user_profile: 載入用戶資料（優先使用）
-- save_user_profile: 儲存用戶資料
-- record_meal: 記錄飲食
-- plan_feast: 規劃大餐
-- calculate_nutrition: 計算營養
-- list_available_foods: 列出可查詢食材
-
-請用繁體中文回答，回答簡潔扼要。 /no_think"""
+# 使用 prompts.py 中定義的 System Prompt
+SYSTEM_PROMPT = NUTRITIONIST_SYSTEM_PROMPT
 
 
 def create_llm() -> ChatOllama:

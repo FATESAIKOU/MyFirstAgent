@@ -678,4 +678,222 @@ $ echo "有哪些食材可以查詢營養" | poetry run python -m src.main
 
 ---
 
-## 步驟 7.5：食譜推薦功能（進行中）
+## 步驟 7.5：食譜推薦功能 ✅
+
+### 執行記錄
+
+1. **建立 Prompt 模板** - `src/agent/prompts.py`
+   - 定義營養師角色的詳細 System Prompt
+   - 包含食譜推薦原則
+   - 考慮熱量預算、營養均衡、用戶偏好
+
+2. **更新 Graph** - 使用新的 Prompt
+
+### System Prompt 設計要點
+
+```python
+NUTRITIONIST_SYSTEM_PROMPT = """
+## 你的職責
+1. 協助用戶設定和管理個人資料
+2. 根據食材推薦個人化健康食譜
+3. 計算營養成分
+...
+
+## 食譜推薦原則
+1. 熱量預算：根據每日上限計算剩餘額度
+2. 營養均衡：蛋白質、碳水、脂肪比例
+3. 用戶偏好：飲食類型、喜好、厭惡
+4. 過敏原：避開過敏食材
+5. 減重建議：高蛋白低脂、糙米替代白飯...
+"""
+```
+
+### 驗證結果
+
+```bash
+你: 我有雞胸肉、花椰菜和糙米，推薦一個低熱量的晚餐
+
+助手: 晚餐食譜：香煎雞胸肉配花椰菜與糙米飯
+- 雞胸肉 150g
+- 花椰菜 100g  
+- 糙米 50g
+
+總熱量：328 大卡
+蛋白質：50.8 g
+脂肪：6.2 g
+碳水化合物：16.5 g
+
+這個搭配高蛋白、低脂肪... ✅
+```
+
+### 學習重點
+
+1. **Prompt Engineering 技巧**：
+   - 清晰定義角色和職責
+   - 列出可用工具及用法
+   - 提供推薦原則作為決策依據
+   - 定義回覆風格
+
+2. **System Prompt 結構**：
+   ```
+   1. 角色定義
+   2. 職責列表
+   3. 可用工具說明
+   4. 決策原則
+   5. 回覆風格要求
+   ```
+
+3. **上下文利用** - LLM 結合：
+   - 用戶資料（透過 Tool 獲取）
+   - 營養資料（透過 Tool 計算）
+   - Prompt 中的推薦原則
+
+---
+
+## 步驟 7.6：大餐日規劃 ✅
+
+### 執行記錄
+
+1. **plan_feast Tool** 已在步驟 7.4 建立，功能：
+   - 記錄預定大餐（日期、描述、預估熱量）
+   - 計算超出額度
+   - 提供調整建議
+
+### 驗證結果
+
+```bash
+$ echo "我週六想吃火鍋大餐，大概2000大卡" | poetry run python -m src.main
+
+助手: 已為您規劃週六的火鍋大餐，預估熱量為 2000 大卡。
+由於這會超過您每日的熱量上限，建議在大餐前 1 天減少約 200 大卡的攝取。
+
+調整建議：
+- 選擇低熱量主食，如糙米飯代替白飯
+- 增加蔬菜比例
+- 減少油脂攝取
+```
+
+### 學習重點
+
+1. **多步推理**
+   - LLM 分析大餐熱量 vs 每日上限
+   - 計算需要調整的天數和額度
+   - 生成具體建議
+
+2. **狀態連動**
+   - 大餐規劃儲存到 JSON
+   - 後續推薦可讀取此資料
+   - 影響未來的推薦策略
+
+---
+
+# Phase 1 完成總結 🎉
+
+## 已完成的功能
+
+| 功能 | 實現方式 | 對應步驟 |
+|------|---------|---------|
+| 基礎對話 | ChatOllama + LangGraph | 6, 7.1 |
+| 多輪記憶 | MemorySaver + thread_id | 7.2 |
+| 營養計算 | @tool + bind_tools + ToolNode | 7.3 |
+| 用戶資料 | JSON 讀寫 Tools | 7.4 |
+| 食譜推薦 | Prompt Engineering | 7.5 |
+| 大餐規劃 | plan_feast Tool + 多步推理 | 7.6 |
+
+## 專案結構
+
+```
+MyFirstAgent/
+├── pyproject.toml          # Poetry 配置
+├── poetry.lock
+├── README.md
+├── tutorial_log.md         # 教學記錄（本檔案）
+├── data/
+│   └── user_profile.json   # 用戶資料
+├── src/
+│   ├── __init__.py
+│   ├── main.py             # CLI 入口
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── graph.py        # LangGraph 定義
+│   │   ├── state.py        # State 定義
+│   │   └── prompts.py      # Prompt 模板
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── nutrition.py    # 營養計算工具
+│   │   └── storage.py      # JSON 讀寫工具
+│   └── config/
+│       ├── __init__.py
+│       └── settings.py     # 配置
+└── tests/
+    └── __init__.py
+```
+
+## Graph 最終結構
+
+```
+[START] → [chatbot] → [should_continue?]
+                           ↓ "tools" (有 tool_calls)
+                      [tools] → [chatbot]
+                           ↓ END (無 tool_calls)
+                        [END]
+         ↑
+    [MemorySaver] - 對話記憶
+```
+
+## 核心技術學習清單
+
+### LangGraph 基礎
+- ✅ StateGraph - 狀態圖容器
+- ✅ add_node() - 添加節點
+- ✅ add_edge() - 連接節點
+- ✅ add_conditional_edges() - 條件分支
+- ✅ compile() - 編譯圖
+
+### State 管理
+- ✅ TypedDict - 定義 State 結構
+- ✅ Annotated + Reducer - 定義合併策略
+- ✅ add_messages - 訊息歷史 Reducer
+
+### Tool Calling
+- ✅ @tool 裝飾器 - 定義工具
+- ✅ bind_tools() - 綁定工具到 LLM
+- ✅ ToolNode - 自動執行工具
+- ✅ tool_calls 判斷 - 條件分支
+
+### 對話記憶
+- ✅ MemorySaver - 記憶體 Checkpointer
+- ✅ thread_id - 對話線程標識
+- ✅ config 參數傳遞
+
+### Prompt Engineering
+- ✅ System Prompt 設計
+- ✅ 角色定義
+- ✅ 工具使用指引
+- ✅ 決策原則
+
+## 下一步（Phase 2+）
+
+| Phase | 功能 | 技術 |
+|-------|------|------|
+| 2 | 圖片解析 (Vision) | 多模態模型 |
+| 3 | 網路搜尋 | MCP 整合 |
+| 4 | 可視化圖表 | matplotlib |
+| 5 | Web UI | FastAPI + 前端 |
+
+---
+
+## 使用方式
+
+```bash
+# 啟動 Ollama
+ollama serve
+
+# 執行 Agent
+cd /home/fatesaikou/testPY/MyFirstAgent
+poetry run python -m src.main
+```
+
+---
+
+**教學完成日期：2025-12-26**

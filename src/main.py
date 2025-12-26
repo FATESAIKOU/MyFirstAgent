@@ -1,19 +1,19 @@
 """
-步驟 7.2：多輪對話記憶
+Phase 1 完成：體重管理食譜推薦 AI Agent
 
-改進點：
-- 加入 MemorySaver（Checkpointer）
-- 使用 thread_id 區分對話
-- 能記住之前說過的話
+功能：
+- 多輪對話記憶
+- 營養計算（Tool Calling）
+- 用戶資料持久化（JSON）
+- 個人化食譜推薦
+- 大餐日規劃
 
 Graph 結構：
-    [START] → [chatbot] → [END]
-    （加入 checkpointer 記憶）
-
-學習重點：
-1. config 參數傳遞 thread_id
-2. Checkpointer 的工作原理
-3. 對話歷史的自動累積
+    [START] → [chatbot] → [should_continue?]
+                              ↓ tools
+                         [tools] → [chatbot]
+                              ↓ END
+                           [END]
 """
 
 from langchain_core.messages import HumanMessage
@@ -55,7 +55,7 @@ def chat_with_memory(user_input: str, thread_id: str = "default") -> str:
 def main():
     """CLI 主迴圈"""
     print("=" * 50)
-    print("🥗 營養師 AI 助手 (步驟 7.4: 用戶資料)")
+    print("🥗 營養師 AI 助手 (Phase 1 完成)")
     print("輸入 'quit' 或 'q' 退出")
     print("輸入 'new' 開始新對話")
     print("=" * 50)
