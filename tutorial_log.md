@@ -439,4 +439,72 @@ $ echo "推薦一個低熱量午餐" | poetry run python -m src.main
 
 ---
 
-## 步驟 7.2：多輪對話記憶（進行中）
+## 步驟 7.2：多輪對話記憶 ✅
+
+### 執行記錄
+
+1. **引入 MemorySaver** - `src/agent/graph.py`
+   ```python
+   from langgraph.checkpoint.memory import MemorySaver
+   
+   memory = MemorySaver()
+   graph = graph_builder.compile(checkpointer=memory)
+   ```
+
+2. **使用 thread_id** - `src/main.py`
+   ```python
+   config = {"configurable": {"thread_id": "user_session_1"}}
+   result = agent_graph.invoke(input_state, config=config)
+   ```
+
+### 程式碼重點
+
+```python
+# Checkpointer 工作原理：
+# 1. 每次 invoke 結束後，自動保存 State
+# 2. 下次 invoke 時，根據 thread_id 恢復 State
+# 3. 新訊息透過 add_messages Reducer 合併到歷史
+
+# thread_id 的作用：
+# - 同一個 thread_id = 同一個對話（共享歷史）
+# - 不同 thread_id = 獨立對話
+```
+
+### 驗證結果
+
+```bash
+$ printf "我叫小明\n我叫什麼名字\n" | poetry run python -m src.main
+
+你: 我叫小明
+助手: 你好，小明！很高興認識你...
+
+你: 我叫什麼名字
+助手: 你叫小明！  ← 成功記住！
+```
+
+### 學習重點
+
+1. **MemorySaver** - 記憶體版本的 Checkpointer
+   - 程式結束就消失
+   - 可替換為 SQLite 版本持久化
+
+2. **thread_id** - 對話線程標識
+   - 區分不同用戶/對話
+   - 是多租戶的基礎
+
+3. **Checkpointer 生命週期**
+   - invoke 前：根據 thread_id 載入舊 State
+   - invoke 中：Node 處理並更新 State
+   - invoke 後：保存新 State
+
+### Graph 結構（不變）
+
+```
+[START] → [chatbot] → [END]
+            ↓
+      [MemorySaver] ← 新增：自動保存/恢復 State
+```
+
+---
+
+## 步驟 7.3：第一個 Tool - 營養計算（進行中）
