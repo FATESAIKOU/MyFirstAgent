@@ -3,51 +3,74 @@ LangGraph Agent 定義
 
 這是 Agent 的核心：使用 StateGraph 建構對話流程
 
-Graph 結構（步驟 7.1 ~ 7.2）：
-    [START] → [chatbot] → [END]
+Graph 結構演進：
+- 步驟 7.1: [START] → [chatbot] → [END]
+- 步驟 7.2: 加入 MemorySaver
+- 步驟 7.3: 加入 Tool Calling（營養計算）
+- 步驟 7.4: 加入用戶資料 Tools
 
-步驟 7.2 新增：
-    - MemorySaver: 記憶對話歷史
-    - thread_id: 區分不同對話線程
+當前結構：
+    [START] → [chatbot] → [should_continue?]
+                              ↓ "tools" (有 tool_calls)
+                         [tools] → [chatbot]
+                              ↓ END (無 tool_calls)
+                           [END]
 
 學習重點：
-1. StateGraph - 狀態圖的容器
-2. add_node - 添加處理節點
-3. add_edge - 添加邊（節點間的連接）
-4. compile - 編譯成可執行的 Graph
-5. MemorySaver - 對話記憶（Checkpointer）
+1. bind_tools() - 綁定工具到 LLM
+2. ToolNode - 自動執行工具
+3. conditional_edges - 條件分支
 """
 
 from langchain_ollama import ChatOllama
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import ToolNode
 
 from src.agent.state import AgentState
 from src.config.settings import OLLAMA_MODEL, OLLAMA_BASE_URL
+from src.tools.nutrition import nutrition_tools
+from src.tools.storage import storage_tools
+
+# 合併所有 Tools
+all_tools = nutrition_tools + storage_tools
 
 
 # System Prompt - 定義 AI 角色
-SYSTEM_PROMPT = """你是一個專業的營養師助手，專門協助用戶規劃健康飲食。
+SYSTEM_PROMPT = """你是一個專業的營養師助手，專門協助用戶規劃健康飲食和管理體重。
 
 你的職責：
-1. 根據用戶提供的食材推薦健康食譜
-2. 計算食物的營養成分和熱量
-3. 提供飲食建議以幫助用戶達成體重目標
+1. 第一次對話時，先使用 load_user_profile 檢查用戶資料
+2. 如果是新用戶，友善地引導他們設定：姓名、目標體重、當前體重
+3. 根據用戶資料和食材推薦個人化食譜
+4. 計算食物營養成分
+5. 記錄用戶的飲食
+6. 協助規劃大餐日
+
+可用工具：
+- load_user_profile: 載入用戶資料（優先使用）
+- save_user_profile: 儲存用戶資料
+- record_meal: 記錄飲食
+- plan_feast: 規劃大餐
+- calculate_nutrition: 計算營養
+- list_available_foods: 列出可查詢食材
 
 請用繁體中文回答，回答簡潔扼要。 /no_think"""
 
 
 def create_llm() -> ChatOllama:
-    """建立 LLM 實例"""
-    return ChatOllama(
+    """建立 LLM 實例（綁定工具）"""
+    base_llm = ChatOllama(
         model=OLLAMA_MODEL,
         base_url=OLLAMA_BASE_URL,
         temperature=0.7,
     )
+    # bind_tools: 告訴 LLM 有哪些工具可用
+    return base_llm.bind_tools(all_tools)
 
 
-# 全域 LLM 實例
+# 全域 LLM 實例（已綁定工具）
 llm = create_llm()
 
 
@@ -61,7 +84,7 @@ def chatbot_node(state: AgentState) -> dict:
     這個節點的職責：
     1. 讀取對話歷史 (state["messages"])
     2. 加入 System Prompt
-    3. 調用 LLM
+    3. 調用 LLM（可能生成 tool_calls 或直接回覆）
     4. 返回 AI 回覆
     """
     # 組裝訊息：System Prompt + 對話歷史
@@ -71,44 +94,66 @@ def chatbot_node(state: AgentState) -> dict:
     response = llm.invoke(messages)
     
     # 清理 qwen3 的 think 標籤
-    if hasattr(response, 'content'):
+    if hasattr(response, 'content') and response.content:
         response.content = response.content.replace("<think>\n\n</think>\n\n", "").strip()
     
     # 返回更新：新訊息會被 add_messages Reducer 追加到歷史中
     return {"messages": [response]}
 
 
+def should_continue(state: AgentState) -> str:
+    """條件分支：決定下一步去哪個節點
+    
+    檢查最後一條訊息是否包含 tool_calls：
+    - 有 tool_calls → 去 "tools" 節點執行工具
+    - 沒有 → 結束對話
+    """
+    last_message = state["messages"][-1]
+    
+    # 檢查是否有工具調用請求
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "tools"
+    
+    return END
+
+
 def create_graph() -> StateGraph:
     """建立 Agent Graph
     
-    Graph 建構步驟：
-    1. 建立 StateGraph，指定 State 類型
-    2. add_node: 添加節點
-    3. add_edge: 連接節點
-    4. compile: 編譯成可執行圖（加入 Checkpointer）
-    
-    步驟 7.2 新增：MemorySaver
-        - Checkpointer 負責在每次執行後保存 State
-        - 下次執行時可恢復之前的 State
-        - MemorySaver 是記憶體版本（程式結束就消失）
-    
-    目前結構：
-        START → chatbot → END
+    當前結構：
+        [START] → [chatbot] → [should_continue?]
+                                    ↓ "tools"
+                               [tools] → [chatbot]
+                                    ↓ END
+                                 [END]
     """
     # 1. 建立 StateGraph
     graph_builder = StateGraph(AgentState)
     
     # 2. 添加節點
     graph_builder.add_node("chatbot", chatbot_node)
+    graph_builder.add_node("tools", ToolNode(all_tools))
     
     # 3. 添加邊
-    graph_builder.add_edge(START, "chatbot")  # 起點 → chatbot
-    graph_builder.add_edge("chatbot", END)     # chatbot → 終點
+    graph_builder.add_edge(START, "chatbot")
+    
+    # 條件邊：根據 should_continue 的返回值決定去向
+    graph_builder.add_conditional_edges(
+        "chatbot",
+        should_continue,
+        {
+            "tools": "tools",
+            END: END,
+        }
+    )
+    
+    # 工具執行完後，回到 chatbot 讓 LLM 處理結果
+    graph_builder.add_edge("tools", "chatbot")
     
     # 4. 建立 Checkpointer（對話記憶）
     memory = MemorySaver()
     
-    # 5. 編譯（傳入 checkpointer）
+    # 5. 編譯
     graph = graph_builder.compile(checkpointer=memory)
     
     return graph

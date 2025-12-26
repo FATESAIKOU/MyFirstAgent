@@ -55,7 +55,7 @@ def chat_with_memory(user_input: str, thread_id: str = "default") -> str:
 def main():
     """CLI 主迴圈"""
     print("=" * 50)
-    print("🥗 營養師 AI 助手 (步驟 7.2: 對話記憶)")
+    print("🥗 營養師 AI 助手 (步驟 7.4: 用戶資料)")
     print("輸入 'quit' 或 'q' 退出")
     print("輸入 'new' 開始新對話")
     print("=" * 50)

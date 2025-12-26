@@ -507,4 +507,175 @@ $ printf "我叫小明\n我叫什麼名字\n" | poetry run python -m src.main
 
 ---
 
-## 步驟 7.3：第一個 Tool - 營養計算（進行中）
+## 步驟 7.3：第一個 Tool - 營養計算 ✅
+
+### 執行記錄
+
+1. **建立 Tool** - `src/tools/nutrition.py`
+   ```python
+   @tool
+   def calculate_nutrition(food_name: str, weight_grams: float) -> str:
+       """計算食材的營養成分和熱量"""
+       # LLM 根據 docstring 決定是否調用
+       ...
+   
+   @tool
+   def list_available_foods() -> str:
+       """列出所有可查詢營養的食材清單"""
+       ...
+   ```
+
+2. **綁定工具到 LLM** - `src/agent/graph.py`
+   ```python
+   llm = base_llm.bind_tools(nutrition_tools)
+   ```
+
+3. **新增 ToolNode** - 自動執行工具
+   ```python
+   graph_builder.add_node("tools", ToolNode(nutrition_tools))
+   ```
+
+4. **條件分支** - 判斷是否需要調用工具
+   ```python
+   def should_continue(state):
+       if last_message.tool_calls:
+           return "tools"
+       return END
+   
+   graph_builder.add_conditional_edges("chatbot", should_continue, {...})
+   ```
+
+### Graph 結構
+
+```
+[START] → [chatbot] → [should_continue?]
+                           ↓ "tools" (有 tool_calls)
+                      [tools] → [chatbot]
+                           ↓ END (無 tool_calls)
+                        [END]
+```
+
+### 驗證結果
+
+```bash
+$ echo "雞胸肉150克有多少熱量" | poetry run python -m src.main
+助手: 雞胸肉150克的熱量是247.5大卡。  ← 165 * 1.5 = 247.5 ✅
+
+$ echo "有哪些食材可以查詢營養" | poetry run python -m src.main
+助手: 肉類：雞胸肉、雞腿肉... ← 調用 list_available_foods ✅
+```
+
+### 學習重點
+
+1. **@tool 裝飾器**
+   - 將 Python 函數轉為 LangChain Tool
+   - docstring 會成為工具描述（LLM 用來決策）
+   - 參數型別 → JSON Schema
+
+2. **bind_tools()**
+   - 告訴 LLM 有哪些工具可用
+   - LLM 會在適當時機生成 tool_calls
+
+3. **ToolNode**
+   - LangGraph 內建的工具執行節點
+   - 自動根據 tool_calls 執行對應工具
+   - 結果作為 ToolMessage 加入對話
+
+4. **add_conditional_edges()**
+   - 實現條件分支
+   - 根據函數返回值決定下一個節點
+
+5. **Tool Calling 流程**
+   ```
+   用戶問問題 → LLM 生成 tool_calls
+   → ToolNode 執行工具 → 返回 ToolMessage
+   → LLM 根據結果生成最終回覆
+   ```
+
+---
+
+## 步驟 7.4：用戶資料持久化 ✅
+
+### 執行記錄
+
+1. **建立 Storage Tools** - `src/tools/storage.py`
+   ```python
+   @tool
+   def load_user_profile() -> str:
+       """載入用戶資料"""
+   
+   @tool
+   def save_user_profile(name, target_weight, ...) -> str:
+       """儲存用戶資料"""
+   
+   @tool
+   def record_meal(meal_type, foods, total_calories) -> str:
+       """記錄飲食"""
+   
+   @tool
+   def plan_feast(date, description, estimated_calories) -> str:
+       """規劃大餐"""
+   ```
+
+2. **整合到 Graph** - 合併所有 Tools
+   ```python
+   all_tools = nutrition_tools + storage_tools
+   llm = base_llm.bind_tools(all_tools)
+   ```
+
+3. **JSON 資料結構**
+   ```json
+   {
+     "name": "小明",
+     "target_weight": 70.0,
+     "current_weight": 75.0,
+     "daily_calorie_limit": 1800,
+     "preferences": {...},
+     "weight_history": [...],
+     "meal_records": [...],
+     "planned_feasts": [...]
+   }
+   ```
+
+### 驗證結果
+
+```bash
+# 設定用戶資料
+你: 我叫小明，目標體重70公斤，目前75公斤
+助手: 已成功更新用戶資料... ✅
+
+# 記錄飲食
+你: 幫我記錄午餐，吃了雞胸肉150克和白飯200克
+助手: 已記錄午餐，今日已攝取 508 大卡，剩餘 1292 大卡 ✅
+
+# 規劃大餐
+你: 週六要吃火鍋，預計1800大卡
+助手: 已規劃大餐... ✅
+```
+
+### 學習重點
+
+1. **多 Tool 組合** - 一個 Agent 可以有多個工具
+2. **Tool 間資料共享** - 透過 JSON 檔案持久化
+3. **複雜 Tool 設計**：
+   - 參數驗證
+   - 預設值處理
+   - 錯誤處理
+   - 格式化輸出
+
+4. **LLM 決策能力** - 自動選擇合適的工具
+
+### 資料持久化流程
+
+```
+用戶說話 → LLM 分析意圖
+         → 決定調用哪個 Tool
+         → ToolNode 執行 Tool
+         → Tool 讀寫 JSON 檔案
+         → 返回結果給 LLM
+         → LLM 生成最終回覆
+```
+
+---
+
+## 步驟 7.5：食譜推薦功能（進行中）
