@@ -1,70 +1,51 @@
 """
-步驟 6：最小 LLM 對話
+步驟 7.1：使用 LangGraph 的對話
 
-這是最簡單的 LLM 調用示例：
-- 無狀態（每次對話獨立）
-- 直接調用 ChatOllama
-- 單輪問答
+改進點：
+- 從直接調用 LLM → 使用 Graph 架構
+- 雖然功能相同，但架構更易擴展
+
+Graph 結構：
+    [START] → [chatbot] → [END]
 
 學習重點：
-1. ChatOllama 的基本使用
-2. invoke() 方法
-3. 訊息格式 (HumanMessage, AIMessage)
+1. graph.invoke() 執行 Graph
+2. State 的輸入輸出格式
+3. 訊息的流動方式
 """
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
-from src.config.settings import OLLAMA_MODEL, OLLAMA_BASE_URL
+from langchain_core.messages import HumanMessage
+from src.agent.graph import agent_graph
 
 
-def create_llm() -> ChatOllama:
-    """建立 LLM 實例
+def chat_with_graph(user_input: str) -> str:
+    """使用 Graph 進行對話
     
-    ChatOllama 參數說明：
-    - model: Ollama 模型名稱
-    - base_url: Ollama 服務地址
-    - temperature: 生成隨機性 (0=確定性, 1=隨機)
+    invoke() 參數：
+    - 輸入是初始 State（或部分 State）
+    - 輸出是最終 State
+    
+    注意：目前沒有記憶功能，每次調用都是獨立對話
     """
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.7,
-    )
-
-
-def chat_once(llm: ChatOllama, user_input: str) -> str:
-    """單輪對話
+    # 準備輸入 State
+    input_state = {
+        "messages": [HumanMessage(content=user_input)]
+    }
     
-    訊息類型：
-    - SystemMessage: 系統提示，定義 AI 角色
-    - HumanMessage: 用戶輸入
-    - AIMessage: AI 回覆（invoke 返回）
+    # 執行 Graph
+    result = agent_graph.invoke(input_state)
     
-    注意：qwen3 預設啟用 thinking mode，會輸出 <think> 標籤
-    加入 /no_think 可關閉思考過程輸出
-    """
-    messages = [
-        SystemMessage(content="你是一個專業的營養師助手，專門協助用戶規劃健康飲食。請用繁體中文回答。回答請簡潔扼要。 /no_think"),
-        HumanMessage(content=user_input),
-    ]
-    
-    # invoke() 是同步調用，返回 AIMessage
-    response = llm.invoke(messages)
-    
-    # 清理可能的空 think 標籤
-    content = response.content
-    content = content.replace("<think>\n\n</think>\n\n", "").strip()
-    return content
+    # 從結果中提取最後一條訊息（AI 回覆）
+    ai_message = result["messages"][-1]
+    return ai_message.content
 
 
 def main():
     """CLI 主迴圈"""
     print("=" * 50)
-    print("🥗 營養師 AI 助手 (步驟 6: 最小對話)")
+    print("🥗 營養師 AI 助手 (步驟 7.1: LangGraph)")
     print("輸入 'quit' 或 'q' 退出")
     print("=" * 50)
-    
-    llm = create_llm()
     
     while True:
         try:
@@ -78,7 +59,7 @@ def main():
                 break
             
             print("\n助手: ", end="", flush=True)
-            response = chat_once(llm, user_input)
+            response = chat_with_graph(user_input)
             print(response)
             
         except KeyboardInterrupt:

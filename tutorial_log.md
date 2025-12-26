@@ -377,4 +377,66 @@ $ echo "100g雞胸肉有多少熱量" | poetry run python -m src.main
 
 ---
 
-## 步驟 7.1：引入 LangGraph State（進行中）
+## 步驟 7.1：引入 LangGraph State ✅
+
+### 執行記錄
+
+1. **定義 State** - `src/agent/state.py`
+   ```python
+   class AgentState(TypedDict):
+       messages: Annotated[list[BaseMessage], add_messages]
+   ```
+   - `Annotated` + `add_messages` = 訊息自動追加合併
+
+2. **建立 Graph** - `src/agent/graph.py`
+   ```python
+   graph_builder = StateGraph(AgentState)
+   graph_builder.add_node("chatbot", chatbot_node)
+   graph_builder.add_edge(START, "chatbot")
+   graph_builder.add_edge("chatbot", END)
+   graph = graph_builder.compile()
+   ```
+
+3. **更新 main.py** - 改用 `graph.invoke()`
+
+### Graph 結構
+
+```
+[START] → [chatbot] → [END]
+```
+
+### 程式碼重點
+
+```python
+# Node 函數：接收 State，返回 State 更新
+def chatbot_node(state: AgentState) -> dict:
+    messages = [SystemMessage(...)] + state["messages"]
+    response = llm.invoke(messages)
+    return {"messages": [response]}  # Reducer 會自動合併
+
+# 執行 Graph
+result = agent_graph.invoke({"messages": [HumanMessage(content="...")]})
+```
+
+### 驗證結果
+
+```bash
+$ echo "推薦一個低熱量午餐" | poetry run python -m src.main
+助手: 推薦一道低熱量的 雞胸肉沙拉...
+```
+
+### 學習重點
+
+1. **StateGraph** - 狀態圖容器
+2. **add_node()** - 添加處理節點
+3. **add_edge()** - 連接節點（定義流程）
+4. **compile()** - 編譯成可執行圖
+5. **Reducer (add_messages)** - 定義 State 如何合併更新
+
+### 目前限制（下一步解決）
+
+- ❌ 無對話記憶（每次 invoke 都是新對話）
+
+---
+
+## 步驟 7.2：多輪對話記憶（進行中）
