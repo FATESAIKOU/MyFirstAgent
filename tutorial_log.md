@@ -893,22 +893,197 @@ Phase 1 已完成以下核心技術學習：
 | **12** | 整合到 Agent | Graph 擴展、條件分支 | Agent 可處理文字或圖片輸入 |
 | **13** | 影響分析與建議 | 多步推理、狀態運用 | 分析零食對後續飲食的影響 |
 
-## Step 8：Vision 模型選型與下載（進行中）
+## Step 8：Vision 模型選型與下載（✅ 完成）
 
 ### 候選模型
 
 | 模型 | 參數量 | VRAM 需求 | 中文能力 | 推薦度 | 說明 |
 |------|--------|-----------|---------|--------|------|
-| **llava:13b** | 13B | ~8GB | ⭐⭐⭐ | ⭐⭐⭐⭐ | LLaVA，通用 Vision 能力強 |
-| **llava:7b** | 7B | ~5GB | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 較小版本，速度快 |
-| **qwen2-vl:7b** | 7B | ~5GB | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Qwen Vision，中文強 |
-| **minicpm-v** | 8B | ~6GB | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | 小參數高性能 |
+| **moondream** | 1.6B | ~1.7GB | ⭐⭐ | ⭐⭐⭐⭐⭐ | 超小型，適合與文字模型共存 |
+| **llava-phi3** | 3.8B | ~3GB | ⭐⭐⭐ | ⭐⭐⭐⭐ | Phi-3 based，平衡 |
+| **llava:7b** | 7B | ~5GB | ⭐⭐⭐ | ⭐⭐⭐ | 較大版本，需獨立運行 |
+| **llava:13b** | 13B | ~8GB | ⭐⭐⭐ | ⭐⭐ | 通用能力強，VRAM 需求高 |
 
 ### 選型決策
 
-基於你的硬體（RTX 2070 SUPER 8GB）和需求（中文營養標籤），推薦：
-1. **主力：qwen2-vl:7b** - 中文能力最強
-2. **備選：llava:7b** - 通用能力好
+**問題發現：** 
+- qwen3:8b (5.2GB) + llava:7b (4.7GB) = ~10GB
+- RTX 2070 SUPER 只有 8GB VRAM
+- 雙模型會觸發 **context switch**（模型交換載入）
+
+**解決方案：選擇 moondream (1.6B, ~1.7GB)**
+- qwen3:8b (5.2GB) + moondream (1.7GB) = ~6.9GB ✅
+- 可同時載入在 VRAM 中，避免 context switch
+- 體積小但保留基本 Vision 能力
+
+**最終選擇：moondream**
+
+### 下載模型
+
+```bash
+ollama pull moondream
+```
+
+**下載資訊：**
+- 模型權重：828 MB
+- Vision Encoder：909 MB
+- 總大小：約 1.7 GB
+- 下載時間：約 1 分鐘（視網速）
+
+### 安裝相關套件
+
+```bash
+poetry add ollama pillow
+```
+
+**新增依賴：**
+- `ollama ^0.6.1` - Ollama Python SDK
+- `pillow ^12.0.0` - Python 圖片處理庫
+
+### 驗證測試
+
+**測試 1：基本 Vision 功能**
+
+```python
+import ollama
+import base64
+from PIL import Image, ImageDraw, ImageFont
+
+# 創建營養標籤測試圖片
+img = Image.new('RGB', (400, 300), color='white')
+d = ImageDraw.Draw(img)
+d.text((20, 20), "Nutrition Facts", fill='black')
+d.text((20, 70), "Calories: 250 kcal", fill='black')
+d.text((20, 110), "Protein: 15g", fill='black')
+# ... 更多營養資訊
+
+# 測試 moondream
+with open('/tmp/test_nutrition.jpg', 'rb') as f:
+    image_data = base64.b64encode(f.read()).decode('utf-8')
+
+response = ollama.chat(
+    model='moondream',
+    messages=[{
+        'role': 'user',
+        'content': 'What do you see in this image?',
+        'images': [image_data]
+    }]
+)
+```
+
+**測試結果：**
+✅ moondream 能識別圖片為營養標籤
+✅ 能理解標籤的結構和佈局
+⚠️ **數值提取能力較弱** - 只能描述「有營養資訊」，但無法準確提取具體數字
+
+**測試 2：雙模型 VRAM 共存**
+
+測試 qwen3:8b + moondream 能否同時載入：
+```
+qwen3:8b    (5.2GB) -> 成功載入 ✅
+moondream   (1.7GB) -> 成功載入 ✅
+總計：~6.9GB < 8GB VRAM ✅
+```
+
+**結論：** moondream 體積小，可與 qwen3:8b 共存，無 context switch！
+
+### 學習重點
+
+1. **VRAM 管理與模型選型**
+   - **Context Switch 問題**：當模型總大小超過 VRAM，Ollama 會在模型間切換
+   - **解決方案**：選擇小型 Vision 模型（moondream 1.6B）與文字模型（qwen3:8b）共存
+   - **計算公式**：總 VRAM 需求 = 文字模型 + Vision 模型 + 推理開銷
+
+2. **多模態模型結構**
+   - Vision Encoder：將圖片編碼為向量
+   - Language Model：理解與生成文字
+   - 兩者融合：圖片理解 + 文字回應
+
+3. **Ollama API 圖片輸入**
+   - 圖片需 base64 編碼
+   - 通過 `images` 參數傳遞
+   - 可同時處理多張圖片
+
+4. **PIL (Pillow) 圖片處理**
+   - `Image.new()` - 創建空白圖片
+   - `ImageDraw.Draw()` - 繪圖介面
+   - `ImageFont` - 字體載入
+
+5. **Vision 模型能力評估 - moondream**
+   - ✅ 基本物件識別（能識別營養標籤）
+   - ✅ 佈局理解（知道標籤的結構）
+   - ✅ 文字存在檢測（知道有文字）
+   - ⚠️ **精確 OCR 能力弱**（無法準確提取數值）
+   - ⚠️ 中文識別待測試
+   - **適用場景**：粗略食物識別、輔助判斷，需搭配 LLM 推理
+
+### moondream 的限制與應對策略
+
+**限制：**
+- 無法精確提取營養標籤的數值（250 kcal, 15g 等）
+- 更適合「描述圖片內容」而非「精確數據提取」
+
+**應對策略（Phase 2 後續步驟）：**
+1. **粗略識別 + 用戶確認**：
+   - moondream 識別「這是雞胸肉」
+   - Agent 詢問用戶：「請問大約多少克？」
+   
+2. **結合 Prompt Engineering**：
+   - 引導 moondream 關注特定區域
+   - 「Find the weight information in this image」
+   
+3. **未來升級選項**：
+   - 若需精確 OCR，考慮專門的 OCR 工具（如 PaddleOCR）
+   - 或使用更大的 Vision 模型（當有更多 VRAM 時）
+
+---
+
+### 方案 2 測試：更換小型文字模型
+
+**問題回顧：**
+- qwen3:8b 實際 VRAM：~7.5GB（磁碟 5.2GB）
+- moondream 實際 VRAM：~4.4GB（磁碟 1.7GB）
+- 總計：11.9GB > 8GB VRAM ❌
+- **原因**：VRAM 使用量 ≈ 磁碟大小 × 1.5~2 倍（KV cache、激活值等）
+
+**嘗試小型文字模型：**
+
+| 模型 | 磁碟大小 | 預估 VRAM | 中文能力 | Tool Calling |
+|------|---------|----------|---------|-------------|
+| **gemma3:4b** | 3.3 GB | ~5GB | ⭐⭐⭐⭐ | ✅ 支援 |
+| **phi4-mini** | 3.2 GB | ~5GB | ⭐⭐⭐ | ✅ 支援 |
+| qwen3:8b | 5.2 GB | ~7.5GB | ⭐⭐⭐⭐⭐ | ✅ 支援 |
+
+**測試結果：gemma3:4b + moondream**
+
+```python
+# 測試腳本
+1. gemma3:4b 首次對話 -> 0.27秒 ✅
+2. moondream Vision   -> 7.20秒 ⚠️ (context switch)
+3. gemma3:4b 再次對話 -> 2.67秒 ⚠️ (失去記憶)
+```
+
+**結論：**
+- ❌ **仍然無法完美共存**
+- ❌ **記憶丟失**：gemma3:4b 無法記住之前對話（MemorySaver 可能被影響）
+- ⚠️ **切換延遲**：moondream 首次載入需 7 秒
+
+**最終決策：**
+
+保留 **qwen3:8b** + **moondream**，接受 context switch，理由：
+1. **保持最佳能力**：qwen3:8b 中文能力最強，適合營養師角色
+2. **Vision 非高頻**：圖片分析不是每次對話都需要
+3. **真實場景學習**：資源限制是實際開發常見問題
+4. **UX 優化空間**：可透過「正在分析圖片...」提示改善體驗
+5. **記憶完整性**：保證對話記憶不會因切換而丟失
+
+**Phase 2 實施策略調整：**
+- 明確提示用戶 Vision 分析需要等待
+- 優化 Vision 調用頻率（非必要不用）
+- 未來可考慮：
+  - 升級 GPU（更多 VRAM）
+  - 使用量化版本
+  - 分離 Vision 服務到另一台機器
 
 ---
 

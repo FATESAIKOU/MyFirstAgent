@@ -12,6 +12,8 @@ langgraph = "^0.2.45"
 langchain-ollama = "^0.2.0"
 langchain-core = "^0.3.21"
 pydantic = "^2.10.5"
+ollama = "^0.6.1"
+pillow = "^12.0.0"
 
 
 [build-system]
