@@ -27,7 +27,6 @@ Graph 結構演進：
 5. State 擴展 - pending_image 欄位暫存圖片
 """
 
-import ollama
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
@@ -59,8 +58,18 @@ def create_llm() -> ChatOllama:
     return base_llm.bind_tools(all_tools)
 
 
-# 全域 LLM 實例（已綁定工具）
+def create_vision_llm() -> ChatOllama:
+    """建立 Vision LLM 實例（不綁定工具）"""
+    return ChatOllama(
+        model=OLLAMA_VISION_MODEL,
+        base_url=OLLAMA_BASE_URL,
+        temperature=0.3,  # Vision 任務使用較低溫度以保持穩定性
+    )
+
+
+# 全域 LLM 實例
 llm = create_llm()
+vision_llm = create_vision_llm()
 
 
 def vision_node(state: AgentState) -> dict:
@@ -68,20 +77,20 @@ def vision_node(state: AgentState) -> dict:
     
     職責：
     1. 讀取 pending_image（base64 圖片資料）
-    2. 使用 moondream 模型分析圖片
+    2. 使用 Vision LLM (moondream) 分析圖片
     3. 將分析結果加入到 messages
     4. 清空 pending_image
     
-    為何使用 ollama.chat() 而非 LangChain？
-    - LangChain 的 ChatOllama 對 Vision 支援不完整
-    - ollama Python SDK 原生支援 images 參數
-    - 這是目前最簡單直接的方案
+    LangChain 多模態支援：
+    - ✅ ChatOllama 完整支援 Vision
+    - ✅ 使用標準的 HumanMessage 多模態格式
+    - ✅ content 為 list，包含 text 和 image_url
     
     最佳實踐說明：
     - ✅ Vision 處理在 Graph Node 中（不是外部 helper）
     - ✅ 使用 State 傳遞圖片（pending_image 欄位）
-    - ⚠️ 直接用 ollama.chat() 而非 LangChain API
-          原因：LangChain Vision 整合尚不成熟
+    - ✅ 使用 LangChain API（統一風格，不需額外依賴 ollama SDK）
+    - ✅ 多模態訊息格式符合 LangChain 標準
     """
     image_data = state.get("pending_image")
     
@@ -90,21 +99,27 @@ def vision_node(state: AgentState) -> dict:
     
     print("[Vision] 正在分析圖片... (可能需要 3-5 秒)")
     
-    # 使用 Ollama Vision 模型分析圖片
+    # 建立多模態訊息（文字 + 圖片）
     # 注意：moondream 的中文支援較弱，使用英文 prompt 效果更好
-    response = ollama.chat(
-        model=OLLAMA_VISION_MODEL,
-        messages=[{
-            'role': 'user',
-            'content': 'Describe the food in this image. Include food types and quantities if visible.',
-            'images': [image_data]
-        }]
+    vision_message_input = HumanMessage(
+        content=[
+            {
+                "type": "text",
+                "text": "Describe the food in this image. Include food types and quantities if visible."
+            },
+            {
+                "type": "image_url",
+                "image_url": f"data:image/jpeg;base64,{image_data}"
+            }
+        ]
     )
     
-    vision_result = response['message']['content']
+    # 使用 Vision LLM 分析圖片
+    response = vision_llm.invoke([vision_message_input])
+    vision_result = response.content
     
-    # 將 Vision 結果加入對話，讓 LLM 根據這個英文描述來回應用戶
-    vision_message = HumanMessage(
+    # 將 Vision 結果加入對話，讓主 LLM 根據這個英文描述來回應用戶
+    result_message = HumanMessage(
         content=f"[圖片分析結果（來自 Vision 模型）]\n{vision_result}\n\n請根據以上 Vision 分析結果，用繁體中文回答用戶的問題。"
     )
     
@@ -112,7 +127,7 @@ def vision_node(state: AgentState) -> dict:
     # - 加入 Vision 分析訊息
     # - 清空 pending_image
     return {
-        "messages": [vision_message],
+        "messages": [result_message],
         "pending_image": None
     }
 
