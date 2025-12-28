@@ -3,6 +3,7 @@
 # Ollama 設定
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen3:8b"
+OLLAMA_VISION_MODEL = "moondream"  # Vision 模型
 
 # 專案路徑
 import os
