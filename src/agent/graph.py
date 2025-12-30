@@ -38,9 +38,10 @@ from src.agent.prompts import NUTRITIONIST_SYSTEM_PROMPT
 from src.config.settings import OLLAMA_MODEL, OLLAMA_BASE_URL, OLLAMA_VISION_MODEL
 from src.tools.nutrition import nutrition_tools
 from src.tools.storage import storage_tools
+from src.tools.web import web_tools
 
 # 合併所有 Tools
-all_tools = nutrition_tools + storage_tools
+all_tools = nutrition_tools + storage_tools + web_tools
 
 
 # 使用 prompts.py 中定義的 System Prompt
