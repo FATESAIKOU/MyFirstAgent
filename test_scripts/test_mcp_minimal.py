@@ -3,7 +3,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-async def test_fetch_server():
+async def test_fetch_server():    
     server_params = StdioServerParameters(
         command="uvx",
         args=["mcp-server-fetch", "--ignore-robots-txt"]
@@ -20,19 +20,29 @@ async def test_fetch_server():
                     "raw": True
                 }
             )
-
-            print("<<<<<<< Raw HTML Content >>>>>>>")   
+            print("<<< RAW CONTENT >>>")
             print(result.content[0].text)
+
 
             result = await session.call_tool(
                 "fetch",
                 arguments={
-                    "url": "https://www.amazon.co.jp/",
+                    "url": "https://example.com",
                     "raw": False
                 }
             )
+            print("<<< PARSED CONTENT >>>")
+            print(result.content[0].text)
+            
 
-            print("<<<<<<< Processed Content >>>>>>>")
+            result = await session.call_tool(
+                "fetch",
+                arguments={
+                    "url": "https://www.allrecipes.com/",
+                    "raw": False
+                }
+            )
+            print("<<< PARSED CONTENT (AllRecipes) >>>")
             print(result.content[0].text)
 
 if __name__ == "__main__":
