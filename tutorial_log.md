@@ -1639,7 +1639,7 @@ printf "image:test_images/image_small.jpg\nq\n" | poetry run python -m src.main
 | **17** | 食譜搜尋功能 | 網路搜尋、結果解析 | 查詢最新食譜 |
 | **18** | 食材資訊查詢 | API 整合、資料處理 | 獲取食材價格、營養 |
 
-## Step 14：MCP 基礎理解（準備開始）
+## Step 14：MCP 基礎理解 ✅
 
 **目標**：理解 MCP 協議的核心概念和架構
 
@@ -1649,41 +1649,460 @@ printf "image:test_images/image_small.jpg\nq\n" | poetry run python -m src.main
 - 連接 LLM 與外部資料來源
 - 提供統一的工具暴露介面
 - 管理上下文和資源
+- **就像 USB-C 連接埠，但是給 AI 應用使用的**
 
 ### MCP 架構
 
 ```
-┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│             │         │             │         │             │
-│  LLM Agent  │ ◄────► │ MCP Client  │ ◄────► │ MCP Server  │
-│  (LangChain)│         │             │         │             │
-└─────────────┘         └─────────────┘         └─────────────┘
-                                                        │
-                                                        ▼
-                                                ┌─────────────┐
-                                                │  External   │
-                                                │  Services   │
-                                                └─────────────┘
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│   MCP Host      │         │   MCP Client    │         │   MCP Server    │
+│  (AI 應用)      │ ◄────► │   (連接管理)    │ ◄────► │  (提供服務)     │
+│  LangGraph Agent│         │  Python SDK     │         │  fetch, etc.    │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+                                                                 │
+                                                                 ▼
+                                                         ┌─────────────────┐
+                                                         │  External APIs  │
+                                                         │  網頁、資料庫   │
+                                                         └─────────────────┘
 ```
+
+**關鍵角色：**
+- **MCP Host**：AI 應用（我們的 LangGraph Agent）
+- **MCP Client**：負責連接一個 Server（用 Python SDK 實現）
+- **MCP Server**：提供特定功能（如網頁抓取、搜尋）
 
 ### 核心概念
 
-1. **Resources（資源）**
-   - 靜態資料來源（文件、資料庫）
-   - Agent 可讀取的上下文
+#### 1. **Resources（資源）**
+- 靜態資料來源（文件、資料庫）
+- Agent 可**讀取**的上下文
+- 類似 REST API 的 GET
+- 例：`greeting://World` → "Hello, World!"
 
-2. **Tools（工具）**
-   - 動態操作（搜尋、API 呼叫）
-   - Agent 可執行的函數
+#### 2. **Tools（工具）**
+- 動態操作（搜尋、API 呼叫）
+- Agent 可**執行**的函數
+- 類似 REST API 的 POST
+- 例：`fetch(url)` → 網頁內容
 
-3. **Prompts（提示模板）**
-   - 預定義的提示詞
-   - 引導 Agent 行為
+#### 3. **Prompts（提示模板）**
+- 預定義的提示詞
+- 引導 Agent 行為
+- 例：`review_code(code)` → 生成 code review prompt
 
-### 實現內容（Step 14）
-- MCP 協議文件閱讀
-- 架構設計理解
-- 現有 MCP Servers 調研
+### 協議細節
+
+#### 傳輸層（Transport Layer）
+1. **stdio**（本地）
+   - 標準輸入輸出
+   - 用於本機程序間通訊
+   - 適合本地開發
+
+2. **Streamable HTTP**（遠端）
+   - HTTP POST + Server-Sent Events
+   - 支援遠端 Server
+   - 適合生產環境
+
+#### 資料層（Data Layer）
+- 基於 **JSON-RPC 2.0**
+- 生命週期管理：`initialize` → `initialized` → 使用 → 關閉
+- 能力協商（Capability Negotiation）
+
+**初始化流程：**
+```json
+Client → Server: initialize
+{
+  "protocolVersion": "2025-06-18",
+  "capabilities": { "elicitation": {} },
+  "clientInfo": { "name": "my-agent" }
+}
+
+Server → Client: result
+{
+  "capabilities": {
+    "tools": { "listChanged": true },
+    "resources": {}
+  }
+}
+
+Client → Server: notifications/initialized
+```
+
+### Python SDK
+
+#### 已安裝套件
+```bash
+mcp==1.7.1  # 已安裝（最新 1.25.0）
+```
+
+**可用 API：**
+- `ClientSession` - 管理連接
+- `stdio_client()` - 本地連接
+- `streamable_http_client()` - 遠端連接
+- 完整 JSON-RPC 抽象
+
+#### 基本使用模式
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+server_params = StdioServerParameters(
+    command="uvx",
+    args=["mcp-server-fetch"]
+)
+
+async with stdio_client(server_params) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        
+        # 列出工具
+        tools = await session.list_tools()
+        
+        # 調用工具
+        result = await session.call_tool("fetch", 
+            arguments={"url": "https://example.com"})
+```
+
+### 現有 MCP Servers 調研
+
+#### 官方 Servers（從 modelcontextprotocol/servers）
+1. **fetch** ⭐
+   - 功能：抓取網頁內容，轉為 markdown
+   - 工具：`fetch(url, max_length, start_index)`
+   - 用途：網頁搜尋、食譜查詢
+   - 安裝：`uvx mcp-server-fetch`
+
+2. **filesystem**
+   - 功能：讀寫本地檔案
+   - 用途：存取配置、資料
+
+3. **git**
+   - 功能：Git 倉庫操作
+   - 用途：程式碼管理
+
+4. **memory**
+   - 功能：KV 記憶體存儲
+   - 用途：跨對話記憶
+
+5. **time**
+   - 功能：時間查詢
+   - 用途：日期計算
+
+6. **everything**
+   - 功能：整合多種服務
+   - 用途：全功能 demo
+
+7. **sequentialthinking**
+   - 功能：結構化思考
+   - 用途：複雜推理
+
+### Phase 3 實作策略
+
+#### 選定方案：fetch Server
+**為何選 fetch？**
+- ✅ 可搜尋食譜網站（如 BBC Food, AllRecipes）
+- ✅ 提取網頁內容為 markdown（易於 LLM 理解）
+- ✅ 官方維護，穩定可靠
+- ✅ 安裝簡單（`uvx mcp-server-fetch`）
+- ⚠️ 無直接搜尋引擎（需指定 URL）
+
+**替代方案探討：**
+- Google Search API：需付費、配額限制
+- DuckDuckGo：無官方 MCP Server
+- 自建搜尋 Server：工作量大
+
+**實作計畫：**
+1. 預定義食譜網站清單（BBC Food, AllRecipes 等）
+2. 建立 `search_recipe` Tool
+3. 組合搜尋 URL（如 `https://www.bbcgoodfood.com/search?q={query}`）
+4. 用 fetch 抓取搜尋結果頁
+5. LLM 解析結果，提取食譜連結
+6. 再用 fetch 抓取完整食譜內容
+
+### 技術驗證
+
+#### MCP SDK 可用性確認
+```bash
+$ pip index versions mcp
+INSTALLED: 1.7.1
+LATEST:    1.25.0
+
+$ python -c "import mcp; print(dir(mcp))"
+['ClientSession', 'ClientCapabilities', 'Tool', 
+ 'Resource', 'stdio_client', ...]  # ✅ 可用
+```
+
+#### fetch Server 可用性
+```bash
+$ uvx mcp-server-fetch --help  # ✅ 可執行
+```
+
+### 學習收穫
+
+#### MCP vs 傳統 Tool 的差異
+
+| 項目 | LangChain Tool | MCP Tool |
+|------|---------------|----------|
+| **範圍** | 單一 Agent 內 | 跨應用共享 |
+| **連接** | 直接函數呼叫 | 透過協議通訊 |
+| **發現** | 預先定義 | 動態列表 |
+| **更新** | 重啟 Agent | 通知機制 |
+| **位置** | 本地 | 本地/遠端 |
+| **標準化** | 框架特定 | 跨框架標準 |
+
+#### 為何我們需要 MCP？
+- ❌ **Phase 1**：所有 Tool 寫死在 `src/agent/tools.py`
+- ❌ 新增網路搜尋要改程式碼
+- ❌ 無法共享給其他 Agent
+- ✅ **Phase 3**：MCP Server 獨立運作
+- ✅ 任何支援 MCP 的 Agent 都能使用
+- ✅ fetch Server 更新不影響我們的程式碼
+
+### 實現內容總結
+- ✅ MCP 協議文件閱讀（官網文檔）
+- ✅ 架構設計理解（Client-Server 模式）
+- ✅ 現有 MCP Servers 調研（7個官方 Servers）
+- ✅ Python SDK 安裝確認（mcp 1.7.1）
+- ✅ fetch Server 功能驗證
+- ✅ Phase 3 技術方案確定
+
+### 下一步：Step 15
+- 安裝並測試 fetch Server
+- 驗證網頁抓取功能
+- 設計食譜搜尋流程
+
+---
+
+## Step 15：MCP Server 選型與測試 ✅
+
+**目標**：選擇合適的 MCP Server 並驗證功能
+
+### 選定方案：mcp-server-fetch
+
+**為何選 fetch？**
+- ✅ 官方維護，成熟穩定
+- ✅ 可抓取任意網頁內容
+- ✅ 支援 markdown 轉換（需 Node.js 20+）
+- ✅ 支援 raw HTML 模式（通用）
+- ✅ 可分段抓取大型網頁（start_index 參數）
+- ✅ 安裝簡單：`uvx mcp-server-fetch`
+
+### 安裝與設定
+
+#### 1. 安裝 MCP Python SDK
+```bash
+$ cd /home/fatesaikou/testPY/MyFirstAgent
+$ poetry add mcp
+
+# 安裝結果
+mcp==1.25.0  # 最新版本
++ 相依套件：httpx, starlette, uvicorn 等
+```
+
+#### 2. 測試 fetch server 連接
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+server_params = StdioServerParameters(
+    command="uvx",
+    args=["mcp-server-fetch", "--ignore-robots-txt"]
+)
+
+async with stdio_client(server_params) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()  # 初始化連接
+        tools = await session.list_tools()  # 列出工具
+```
+
+### 功能驗證
+
+#### 測試 1：基本連接
+```bash
+$ poetry run python test_mcp_fetch.py
+
+✅ 已連接到 fetch server
+📋 可用工具數量：1
+  - fetch
+    參數：url, max_length, start_index, raw
+```
+
+#### 測試 2：Raw HTML 抓取
+```python
+result = await session.call_tool(
+    "fetch",
+    arguments={
+        "url": "https://example.com",
+        "raw": True  # 獲取原始 HTML
+    }
+)
+
+# 結果
+✅ 成功抓取 633 字元
+✅ 內容是有效的 HTML
+✅ 內容驗證成功
+```
+
+#### 測試 3：抓取食譜網站
+```python
+result = await session.call_tool(
+    "fetch",
+    arguments={
+        "url": "https://www.allrecipes.com/search?q=chicken",
+        "max_length": 5000,
+        "raw": True
+    }
+)
+
+# 結果
+✅ 成功抓取 5260 字元
+✅ 內容包含 'chicken'
+✅ 內容包含 'recipe'
+```
+
+#### 測試 4：分段抓取
+```python
+# 第 1 段
+result1 = await session.call_tool("fetch", {
+    "url": url,
+    "max_length": 1000,
+    "start_index": 0
+})
+
+# 第 2 段
+result2 = await session.call_tool("fetch", {
+    "url": url,
+    "start_index": 1000
+})
+
+# → 可用於處理大型網頁，避免 token 溢出
+```
+
+### 發現的問題與解決
+
+#### 問題 1：Node.js 版本不相容
+**現象：**
+```
+npm WARN EBADENGINE Unsupported engine {
+  package: 'jsdom@27.4.0',
+  required: { node: '^20.19.0 || ^22.12.0 || >=24.0.0' },
+  current: { node: 'v18.8.0', npm: '8.18.0' }
+}
+```
+
+**影響：** Markdown 轉換失敗
+
+**解決方案：**
+- 使用 `raw=True` 參數獲取原始 HTML
+- 讓 LLM（qwen3:8b）解析 HTML
+- 無需升級 Node.js
+
+#### 問題 2：robots.txt 限制
+**現象：**
+```
+The sites robots.txt specifies that autonomous fetching 
+of this page is not allowed
+```
+
+**解決方案：**
+```python
+server_params = StdioServerParameters(
+    command="uvx",
+    args=["mcp-server-fetch", "--ignore-robots-txt"]
+)
+```
+
+**注意：** 僅用於學習目的，生產環境需遵守 robots.txt
+
+### 食譜搜尋策略設計
+
+#### 預定義食譜網站清單
+```python
+RECIPE_SITES = {
+    "allrecipes": {
+        "name": "AllRecipes",
+        "search_url": "https://www.allrecipes.com/search?q={query}",
+        "encoding": "utf-8"
+    },
+    "foodnetwork": {
+        "name": "Food Network",
+        "search_url": "https://www.foodnetwork.com/search/{query}-",
+        "encoding": "utf-8"
+    },
+    "bbcgoodfood": {
+        "name": "BBC Good Food",
+        "search_url": "https://www.bbcgoodfood.com/search?q={query}",
+        "encoding": "utf-8"
+    }
+}
+```
+
+#### 搜尋流程設計
+```
+用戶：「找個雞肉沙拉的食譜」
+    ↓
+1. Agent 調用 search_recipe Tool
+   輸入：query="chicken salad", site="allrecipes"
+    ↓
+2. Tool 內部流程：
+   a. 組合搜尋 URL
+   b. 調用 MCP fetch (raw=True)
+   c. LLM 解析 HTML，提取：
+      - 食譜標題列表
+      - 食譜 URL 列表
+      - 簡短描述
+    ↓
+3. 回傳結構化結果給 Agent
+   {
+     "results": [
+       {"title": "...", "url": "...", "description": "..."},
+       ...
+     ]
+   }
+    ↓
+4. Agent 可進一步抓取完整食譜
+   調用 fetch_recipe(url)
+```
+
+### 技術決策
+
+| 決策點 | 選項 A | 選項 B | 選擇 |
+|--------|--------|--------|------|
+| **HTML 解析** | BeautifulSoup | LLM 解析 | **LLM** - 更靈活 |
+| **抓取模式** | markdown | raw HTML | **raw** - 相容性 |
+| **搜尋方式** | Google API | 直接抓網站 | **直接抓** - 免費 |
+| **robots.txt** | 遵守 | 忽略 | **忽略** - 學習用 |
+
+### 效能考量
+
+#### Token 消耗估算
+- HTML 網頁：~5KB → ~1250 tokens
+- qwen3:8b 上下文：32K tokens
+- 單次可處理：~25 個搜尋結果頁
+
+#### 延遲估算
+- 網頁抓取：1-3 秒
+- LLM 解析：2-5 秒
+- 總計：3-8 秒/次搜尋
+
+### 實現內容總結
+- ✅ mcp Python SDK 安裝（mcp 1.25.0）
+- ✅ fetch server 連接測試
+- ✅ raw HTML 抓取驗證
+- ✅ 食譜網站測試（AllRecipes, BBC Good Food）
+- ✅ 分段抓取功能驗證
+- ✅ 問題排查（Node.js, robots.txt）
+- ✅ 食譜搜尋策略設計
+
+### 測試檔案
+- `test_mcp_fetch.py` - 基本功能測試
+- `test_mcp_raw.py` - Raw 模式驗證
+
+### 下一步：Step 16
+- 建立 MCP Client 包裝類別
+- 整合到 LangGraph Agent
+- 實作 search_recipe Tool
 
 ---
 
