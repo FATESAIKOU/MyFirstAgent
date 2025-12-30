@@ -1087,16 +1087,338 @@ moondream   (1.7GB) -> 成功載入 ✅
 
 ---
 
-## Step 9：最小 Vision 對話（待實施）
+## Step 9：最小 Vision 對話（✅ 完成）
 
-**目標**：驗證 Vision 模型能正確處理圖片輸入
+**目標**：讓 Agent 能夠接收並分析圖片輸入
 
-**實現內容**：
-- 圖片讀取與編碼（base64）
-- 多模態訊息格式
-- Vision LLM 調用
+### 實現內容
 
-**驗證方式**：上傳食物圖片 → 得到描述
+#### 1. 擴展 State 支援圖片
+
+**src/agent/state.py**
+
+```python
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    pending_image: str | None  # base64 編碼的圖片，或 None
+```
+
+**關鍵設計：**
+- `pending_image` 不需要 Reducer，直接覆蓋
+- 用於暫存用戶上傳的圖片
+- Vision Node 處理後清空
+
+#### 2. 創建 Vision Node
+
+**src/agent/graph.py**
+
+```python
+def create_vision_llm() -> ChatOllama:
+    """建立 Vision LLM 實例"""
+    return ChatOllama(
+        model='moondream',
+        base_url=OLLAMA_BASE_URL,
+        temperature=0.3,  # Vision 任務使用較低溫度
+    )
+
+def vision_node(state: AgentState) -> dict:
+    """Vision 節點 - 處理圖片分析"""
+    image_data = state.get("pending_image")
+    if not image_data:
+        return {}
+    
+    # 建立多模態訊息（文字 + 圖片）
+    vision_message_input = HumanMessage(
+        content=[
+            {"type": "text", "text": "Describe the food in this image."},
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_data}"}
+        ]
+    )
+    
+    # 使用 Vision LLM 分析圖片
+    response = vision_llm.invoke([vision_message_input])
+    
+    # 將結果加入對話
+    return {
+        "messages": [HumanMessage(content=f"[圖片分析結果]\n{response.content}")],
+        "pending_image": None
+    }
+```
+
+**LangChain 多模態支援：**
+- ✅ `ChatOllama` 完整支援 Vision
+- ✅ `HumanMessage` 的 `content` 可以是 list（多模態）
+- ✅ 格式：`[{"type": "text", ...}, {"type": "image_url", ...}]`
+
+#### 3. 修改 Graph 條件分支
+
+```python
+def check_image(state: AgentState) -> str:
+    """檢查是否有待處理的圖片"""
+    if state.get("pending_image"):
+        return "vision"
+    return "chatbot"
+
+def create_graph():
+    graph_builder = StateGraph(AgentState)
+    
+    # 添加節點
+    graph_builder.add_node("vision", vision_node)
+    graph_builder.add_node("chatbot", chatbot_node)
+    graph_builder.add_node("tools", ToolNode(all_tools))
+    
+    # START → check_image 條件分支
+    graph_builder.add_conditional_edges(
+        START,
+        check_image,
+        {"vision": "vision", "chatbot": "chatbot"}
+    )
+    
+    # vision → chatbot（分析完圖片後交給 LLM）
+    graph_builder.add_edge("vision", "chatbot")
+    
+    # 保留原有的 tool calling 流程
+    graph_builder.add_conditional_edges("chatbot", should_continue, ...)
+```
+
+**Graph 結構：**
+```
+[START] → [check_image?]
+             ↓ vision (有圖片)
+          [vision] → [chatbot] → [should_continue?]
+             ↓ chatbot (無圖片)     ↓ tools
+          [chatbot]            [tools] → [chatbot]
+                                  ↓ END
+                               [END]
+```
+
+#### 4. 更新 CLI 支援圖片輸入
+
+**src/main.py**
+
+```python
+def main():
+    print("圖片輸入: image:/path/to/image.jpg")
+    
+    while True:
+        user_input = input("\n你: ").strip()
+        
+        # 檢查是否為圖片輸入
+        image_path = None
+        text_input = user_input
+        
+        if user_input.startswith("image:"):
+            image_path = user_input[6:].strip()
+            if not os.path.exists(image_path):
+                print(f"❌ 圖片檔案不存在")
+                continue
+            text_input = "請分析這張圖片"
+            print(f"📷 已載入圖片: {image_path}")
+        
+        response = chat_with_memory(text_input, thread_id, image_path)
+```
+
+### 驗證測試
+
+#### 測試 1：文字生成的測試圖片
+
+```bash
+# 創建測試圖片
+python3 << EOF
+from PIL import Image, ImageDraw, ImageFont
+img = Image.new('RGB', (500, 300), color='white')
+d = ImageDraw.Draw(img)
+font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+d.text((50, 50), "Chicken Breast", fill='black', font=font)
+d.text((50, 120), "Weight: 150g", fill='darkblue', font=font)
+img.save("test_images/chicken_breast.jpg")
+EOF
+
+# 測試
+printf "image:test_images/chicken_breast.jpg\nq\n" | poetry run python -m src.main
+```
+
+**結果：** ✅ 成功識別 "Chicken Breast 150g"
+
+#### 測試 2：真實早餐照片
+
+**問題發現：**
+- 原始圖片 1.7MB → base64 後 2.3MB
+- Context switch 導致卡住（>60秒無響應）
+
+**解決方案：圖片壓縮**
+
+```python
+from PIL import Image
+img = Image.open('test_images/image.png')
+img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+img = img.convert('RGB')
+img.save('test_images/image_small.jpg', 'JPEG', quality=85)
+# 1.7MB → 84KB
+```
+
+**測試結果：**
+
+```bash
+printf "image:test_images/image_small.jpg\nq\n" | poetry run python -m src.main
+```
+
+```
+[Vision] 正在分析圖片... (可能需要 3-5 秒)
+
+助手: 根據圖片分析結果，這是一份豐盛的早餐，包含以下食材：
+- 雞蛋
+- 香腸
+- 豆豆
+- 西紅柿
+- 蘑菇
+- 火腿
+- 烤吐司
+- 咖啡
+
+這份早餐熱量較高，包含豐富的蛋白質和碳水化合物...
+```
+
+✅ **Vision 功能完全正常運作！**
+
+### 學習重點
+
+#### 1. LangChain 多模態支援
+
+**關鍵發現：** ChatOllama 完整支援 Vision！
+
+```python
+# 多模態訊息格式
+HumanMessage(
+    content=[
+        {"type": "text", "text": "描述內容"},
+        {"type": "image_url", "image_url": "data:image/jpeg;base64,..."}
+    ]
+)
+```
+
+**為何不用 ollama.chat()？**
+- ✅ LangChain API 更統一（與其他 Node 風格一致）
+- ✅ 不需額外依賴 ollama SDK
+- ✅ 符合 LangChain 標準，未來升級容易
+
+#### 2. State 擴展設計
+
+**pending_image 設計原則：**
+- 不使用 Reducer（直接覆蓋）
+- Vision Node 處理後立即清空
+- 避免圖片資料累積在 State 中
+
+**對比 messages 欄位：**
+- `messages` 使用 `add_messages` Reducer（追加）
+- `pending_image` 無 Reducer（覆蓋）
+
+#### 3. Vision 模型的語言限制
+
+**moondream 中文支援問題：**
+```python
+# ❌ 中文 prompt 效果差
+content: '請用繁體中文描述這張圖片'
+# 結果：「中文描述這張圖片中的食物和顺序」（輸出不完整）
+
+# ✅ 英文 prompt + LLM 翻譯
+content: 'Describe the food in this image.'
+# 結果：完整英文描述 → qwen3:8b 翻譯成繁體中文
+```
+
+**最佳實踐：**
+1. Vision 模型用英文 prompt
+2. 主 LLM (qwen3:8b) 翻譯成中文
+3. 充分利用各模型優勢
+
+#### 4. 圖片大小優化
+
+**VRAM 與圖片大小：**
+- 大圖片 (2.3MB base64) → Context switch 嚴重
+- 壓縮至 <200KB → 可接受延遲（3-5秒）
+
+**壓縮策略：**
+```python
+img.thumbnail((800, 800))  # 限制最大邊
+img.convert('RGB')         # 移除 alpha 通道
+img.save(..., quality=85)  # JPEG 壓縮
+```
+
+#### 5. Graph 條件分支設計
+
+**START 條件分支的優勢：**
+```python
+START → check_image → vision/chatbot
+```
+
+而非：
+```python
+START → chatbot → check_image
+```
+
+**原因：**
+- Vision 分析應在 LLM 推理前完成
+- 讓 LLM 看到完整的圖片分析結果
+- 避免 LLM 在沒有圖片資訊時就開始回應
+
+#### 6. Context Switch 管理
+
+**問題：** qwen3:8b (7.5GB) + moondream (4.4GB) = 11.9GB > 8GB VRAM
+
+**應對策略：**
+1. ✅ 接受 3-5 秒延遲（用戶提示）
+2. ✅ 優化圖片大小（減少傳輸時間）
+3. ✅ Vision 功能非高頻（可接受）
+4. ⚠️ 保持最佳模型能力（不降級）
+
+**用戶體驗優化：**
+```python
+print("[Vision] 正在分析圖片... (可能需要 3-5 秒)")
+```
+
+### 驗證結果
+
+#### 功能驗證
+- ✅ 圖片上傳（CLI `image:` 前綴）
+- ✅ Vision 分析（識別食物種類）
+- ✅ 結果整合（LLM 用繁體中文回應）
+- ✅ 對話記憶（Vision 後對話繼續）
+- ✅ Tool Calling（Vision 後可調用工具）
+
+#### 性能驗證
+- ✅ Context switch 延遲：3-5 秒（可接受）
+- ✅ 圖片壓縮：1.7MB → 84KB（有效）
+- ✅ 記憶完整：Vision 不影響對話歷史
+
+#### 準確度驗證
+- ✅ 測試圖片（文字）：準確識別 "Chicken Breast 150g"
+- ✅ 真實照片（早餐）：正確識別 8 種食物
+- ⚠️ 數值提取：moondream 較弱（需用戶確認）
+
+### 技術總結
+
+| 技術點 | 實現方式 | 學習價值 |
+|--------|---------|----------|
+| **State 擴展** | 添加 `pending_image` 欄位 | 理解 Reducer vs 直接覆蓋 |
+| **多模態輸入** | LangChain `HumanMessage` | 標準化多模態 API 使用 |
+| **條件分支** | `check_image` 在 START | Graph 流程控制設計 |
+| **模型選型** | moondream 1.6B | VRAM 限制下的權衡 |
+| **語言處理** | 英文 Vision + 中文 LLM | 發揮各模型優勢 |
+| **性能優化** | 圖片壓縮 + UX 提示 | 資源受限環境的優化 |
+
+### 後續優化方向
+
+1. **精確數值提取**（Step 10-11）
+   - OCR 工具整合（PaddleOCR）
+   - 或升級更大 Vision 模型
+
+2. **批量圖片處理**
+   - State 支援多張圖片
+   - 批量分析優化
+
+3. **Vision Tool 化**（Phase 2 後續）
+   - 將 Vision 包裝成 Tool
+   - LLM 自主決定何時調用
 
 ---
 
