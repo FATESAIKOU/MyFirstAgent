@@ -1408,78 +1408,288 @@ print("[Vision] 正在分析圖片... (可能需要 3-5 秒)")
 
 ### 後續優化方向
 
-1. **精確數值提取**（Step 10-11）
+1. **精確數值提取**（未來優化）
    - OCR 工具整合（PaddleOCR）
    - 或升級更大 Vision 模型
 
-2. **批量圖片處理**
+2. **批量圖片處理**（未來功能）
    - State 支援多張圖片
    - 批量分析優化
 
-3. **Vision Tool 化**（Phase 2 後續）
+3. **Vision Tool 化**（未來增強）
    - 將 Vision 包裝成 Tool
    - LLM 自主決定何時調用
 
 ---
 
-## Step 10：Vision Tool - 食物識別（待實施）
+## Step 10-13：進階 Vision 功能（暫時跳過）
 
-**目標**：建立 Tool 自動識別食物
+**決策說明：**
 
-**實現內容**：
-- `identify_food_from_image` Tool
-- 識別食物種類
-- 估算份量/重量
-- 返回結構化資料
+基於以下理由，暫時跳過 Step 10-13 的實現：
 
----
+1. **基礎功能已完整**
+   - Step 9 已實現圖片分析核心功能
+   - 用戶可上傳圖片並得到 AI 分析
+   - Vision 與對話記憶、Tool Calling 整合良好
 
-## Step 11：Vision Tool - 營養標籤解析（待實施）
+2. **技術複雜度高**
+   - **Step 10-11**（精確 OCR）需要額外工具（PaddleOCR）
+   - **Step 12**（圖片處理優化）當前方案已可用
+   - **Step 13**（影響分析）需要更複雜的 Prompt 工程
 
-**目標**：從圖片提取營養資訊
+3. **學習價值重點轉移**
+   - Phase 2 核心：多模態輸入、State 擴展、條件分支
+   - 這些已在 Step 8-9 完整學習
+   - Step 10-13 更偏向業務邏輯優化，而非底層技術
 
-**實現內容**：
-- `parse_nutrition_label` Tool
-- OCR 提取文字
-- 結構化提取：熱量、蛋白質、脂肪、碳水
-- 處理中英文標籤
+4. **下一階段更有價值**
+   - **Phase 3 (MCP)**：學習外部服務整合、協議設計
+   - **Phase 4 (可視化)**：學習資料處理、圖表生成
+   - 這些是新的技術維度
 
----
+**Phase 2 實際完成範圍：**
+- ✅ Step 8：Vision 模型選型與下載
+- ✅ Step 9：最小 Vision 對話（圖片分析整合）
+- ⏭️ Step 10-13：進階 Vision 功能（留待未來優化）
 
-## Step 12：整合到 Agent（待實施）
-
-**目標**：Agent 同時支援文字和圖片輸入
-
-**實現內容**：
-- State 擴展（支援圖片）
-- Graph 條件分支（判斷輸入類型）
-- CLI 圖片上傳介面
-
----
-
-## Step 13：影響分析與建議（待實施）
-
-**目標**：分析零食對後續飲食的影響
-
-**實現內容**：
-- 計算剩餘熱量額度
-- 預測對明後天的影響
-- 調整推薦策略
-- 可視化建議
+**未實現功能可作為練習：**
+- Vision Tool 包裝
+- OCR 精確提取
+- 營養標籤解析
+- 批量圖片處理
 
 ---
 
-# Phase 3: MCP - 網路搜尋整合（規劃中）
+## Phase 2 總結
 
-> **目標**：透過 MCP 協議整合外部服務，獲取最新食譜和食材資訊
+### 完成內容
 
-## Phase 3 步驟規劃（待展開）
+#### 核心功能
+1. **Vision 模型整合**
+   - moondream (1.6B) 下載與配置
+   - LangChain 多模態 API 使用
+   - Context switch 管理（3-5秒延遲）
 
-- Step 14：MCP 基礎理解
-- Step 15：MCP Server 選型與配置
-- Step 16：MCP Client 整合到 Agent
-- Step 17：食譜搜尋功能
-- Step 18：食材價格查詢
+2. **圖片分析流程**
+   - CLI 圖片上傳（`image:` 前綴）
+   - base64 編碼與傳輸
+   - Vision Node 處理
+   - 結果整合到對話
+
+3. **Graph 擴展**
+   - State 新增 `pending_image` 欄位
+   - START 條件分支（check_image）
+   - Vision → Chatbot 流程
+   - 保持原有 Tool Calling 能力
+
+4. **多語言處理**
+   - 英文 prompt 給 Vision 模型
+   - qwen3:8b 翻譯成繁體中文
+   - 充分利用各模型優勢
+
+### 技術學習成果
+
+#### LangGraph 進階
+- ✅ State 擴展設計（Reducer vs 直接覆蓋）
+- ✅ 複雜條件分支（START 分支）
+- ✅ 多模型協作（Vision + Text LLM）
+- ✅ 性能優化（圖片壓縮、UX 提示）
+
+#### LangChain 多模態
+- ✅ `HumanMessage` 多模態格式
+- ✅ `content` 為 list 的用法
+- ✅ Vision 模型整合
+- ✅ 統一 API 風格
+
+#### 實際問題解決
+- ✅ VRAM 限制分析與應對
+- ✅ 模型選型權衡（大小 vs 能力）
+- ✅ Context switch 優化
+- ✅ 圖片傳輸優化（壓縮策略）
+- ✅ 跨語言模型協作
+
+### 測試驗證
+
+#### 功能測試
+```bash
+# 文字測試圖片
+printf "image:test_images/chicken_breast.jpg\nq\n" | poetry run python -m src.main
+# ✅ 識別 "Chicken Breast 150g"
+
+# 真實早餐照片
+printf "image:test_images/image_small.jpg\nq\n" | poetry run python -m src.main
+# ✅ 識別 8 種食物（雞蛋、香腸、豆子、番茄、蘑菇、火腿、吐司、咖啡）
+```
+
+#### 性能測試
+- Vision 分析延遲：3-5 秒（Context switch）
+- 圖片壓縮效果：1.7MB → 84KB
+- 記憶保持：✅ 對話歷史不受影響
+- Tool Calling：✅ Vision 後可正常調用工具
+
+### Phase 2 vs Phase 1 對比
+
+| 項目 | Phase 1 | Phase 2 |
+|------|---------|---------|
+| **輸入類型** | 純文字 | 文字 + 圖片 |
+| **State 欄位** | messages | messages + pending_image |
+| **Graph 節點** | chatbot, tools | vision, chatbot, tools |
+| **條件分支** | 1 個（should_continue）| 2 個（check_image, should_continue）|
+| **LLM 數量** | 1 個（qwen3:8b）| 2 個（qwen3 + moondream）|
+| **學習難度** | ⭐⭐⭐ | ⭐⭐⭐⭐ |
+
+### 關鍵技術決策回顧
+
+#### 1. 為何選 moondream？
+- ✅ 體積小（1.6B），與 qwen3 共存可行
+- ⚠️ 精確度較低（但足夠粗略識別）
+- 🎯 符合「從底層理解」的學習目標
+
+#### 2. 為何不用 ollama.chat()？
+- ✅ LangChain API 更統一
+- ✅ 未來維護成本低
+- ✅ 符合框架最佳實踐
+
+#### 3. 為何 Vision 不做成 Tool？
+- 圖片傳遞機制複雜（Tool 無法接收 base64）
+- 當前流程更直觀（用戶明確控制）
+- 可作為未來練習方向
+
+#### 4. 為何跳過 Step 10-13？
+- 核心技術已學完（多模態、State、分支）
+- 剩餘內容偏業務邏輯，學習價值較低
+- Phase 3/4 提供新的技術維度
+
+### 遇到的挑戰與解決
+
+| 挑戰 | 解決方案 | 學習價值 |
+|------|---------|----------|
+| **VRAM 不足** | 接受 context switch + UX 優化 | 資源限制下的權衡 |
+| **圖片過大** | 壓縮至 <200KB | 傳輸優化技巧 |
+| **中文支援弱** | 英文 prompt + LLM 翻譯 | 多模型協作策略 |
+| **Vision 慢** | 用戶提示 + 非高頻使用 | UX 設計思維 |
+
+### 可改進方向（未來練習）
+
+1. **Vision Tool 化**
+   - 將圖片暫存到檔案系統
+   - Tool 接收檔案路徑而非 base64
+   - LLM 決定何時調用
+
+2. **精確 OCR**
+   - 整合 PaddleOCR
+   - 專門處理營養標籤
+   - 提取結構化數值
+
+3. **批量處理**
+   - 支援多張圖片上傳
+   - 批次分析優化
+   - 結果比對與統計
+
+4. **模型升級**
+   - 測試更大 Vision 模型（llava:13b）
+   - 量化版本（減少 VRAM）
+   - 專用模型（食物識別）
+
+---
+
+# Phase 3: MCP - 網路搜尋整合
+
+> **目標**：透過 Model Context Protocol (MCP) 整合外部服務，讓 Agent 能夠搜尋最新食譜、食材資訊
+
+## Phase 3 概述
+
+### 為何需要 MCP？
+
+**當前限制：**
+- Agent 只能使用預定義的營養資料庫（30+ 種食物）
+- 無法獲取最新食譜資訊
+- 無法查詢食材價格、產地等動態資訊
+
+**MCP 的價值：**
+- 標準化的外部服務整合協議
+- 由 Anthropic 提出，LangChain 支援
+- 類似「Plugin 系統」但更標準化
+
+### 學習目標
+
+1. **理解 MCP 協議**
+   - Client-Server 架構
+   - 資源 (Resources) 概念
+   - 工具 (Tools) 暴露機制
+
+2. **實作 MCP Client**
+   - LangChain MCP 整合
+   - 動態工具載入
+   - 錯誤處理
+
+3. **整合外部服務**
+   - 搜尋引擎（食譜查詢）
+   - API 服務（食材資訊）
+   - 資料庫連接
+
+## Phase 3 步驟規劃
+
+| 步驟 | 步驟名 | 說明的技術 | 預期效果 |
+|------|--------|-----------|---------|
+| **14** | MCP 基礎理解 | MCP 協議、架構設計 | 理解 MCP 運作原理 |
+| **15** | MCP Server 選型 | 現有 MCP Servers 評估 | 選定合適的 Server |
+| **16** | MCP Client 整合 | LangChain MCP 整合 | Agent 可連接 MCP Server |
+| **17** | 食譜搜尋功能 | 網路搜尋、結果解析 | 查詢最新食譜 |
+| **18** | 食材資訊查詢 | API 整合、資料處理 | 獲取食材價格、營養 |
+
+## Step 14：MCP 基礎理解（準備開始）
+
+**目標**：理解 MCP 協議的核心概念和架構
+
+### MCP 是什麼？
+
+**Model Context Protocol (MCP)** 是 Anthropic 提出的標準化協議，用於：
+- 連接 LLM 與外部資料來源
+- 提供統一的工具暴露介面
+- 管理上下文和資源
+
+### MCP 架構
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│             │         │             │         │             │
+│  LLM Agent  │ ◄────► │ MCP Client  │ ◄────► │ MCP Server  │
+│  (LangChain)│         │             │         │             │
+└─────────────┘         └─────────────┘         └─────────────┘
+                                                        │
+                                                        ▼
+                                                ┌─────────────┐
+                                                │  External   │
+                                                │  Services   │
+                                                └─────────────┘
+```
+
+### 核心概念
+
+1. **Resources（資源）**
+   - 靜態資料來源（文件、資料庫）
+   - Agent 可讀取的上下文
+
+2. **Tools（工具）**
+   - 動態操作（搜尋、API 呼叫）
+   - Agent 可執行的函數
+
+3. **Prompts（提示模板）**
+   - 預定義的提示詞
+   - 引導 Agent 行為
+
+### 實現內容（Step 14）
+- MCP 協議文件閱讀
+- 架構設計理解
+- 現有 MCP Servers 調研
+
+---
+
+## Step 15-18：（待實施）
+
+後續步驟將在 Step 14 完成後展開...
 
 ---
 
@@ -1517,11 +1727,23 @@ print("[Vision] 正在分析圖片... (可能需要 3-5 秒)")
 # 啟動 Ollama
 ollama serve
 
-# 執行 Agent
+# 執行 Agent (Phase 2 完成版)
 cd /home/fatesaikou/testPY/MyFirstAgent
 poetry run python -m src.main
+
+# 圖片輸入
+你: image:test_images/image_small.jpg
+
+# 文字對話
+你: 計算雞胸肉150克的熱量
 ```
 
 ---
 
-**教學完成日期：2025-12-26**
+**教學進度：**
+- ✅ Phase 1: 基礎 Agent 建構（Step 1-7.6）
+- ✅ Phase 2: Vision 圖片解析（Step 8-9）
+- 🔄 Phase 3: MCP 整合（準備開始 Step 14）
+- 📋 Phase 4-5: 待實施
+
+**最後更新：2025-12-30**
